@@ -1,0 +1,158 @@
+//! # Router Module
+//!
+//! This module provides the `Router` struct for managing asynchronous request-response communication
+//! using unique identifiers (UUIDs). It leverages the `async_channel` crate for message passing and
+//! the `tokio` crate for asynchronous operations.
+//!
+//! ## Overview
+//!
+//! The `Router` struct is designed to facilitate the routing of requests and responses between different
+//! components of an application. It uses channels to send and receive requests and responses, ensuring
+//! that the communication is non-blocking and efficient. Each request is associated with a unique UUID
+//! to match it with the corresponding response.
+//!
+//! The `Router` struct also provides a default implementation for easy instantiation with pre-configured
+//! channel capacities.
+//!
+//! ## Usage
+//!
+//! To use the `Router` struct, you need to create an instance of it, either using the default implementation
+//! or by manually configuring the channels. You can then use this instance to send requests and receive
+//! responses asynchronously.
+//!
+//! ```rust
+//! use async_channel::{bounded, Sender, Receiver};
+//! use uuid::Uuid;
+//! use std::collections::HashMap;
+//! use router::Router;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let router: Router<String, String> = Router::default();
+//!
+//!     // Example usage of the router
+//!     // ...
+//! }
+//! ```
+//!
+//! ## Features
+//!
+//! - Asynchronous request-response routing
+//! - Unique identifier (UUID) based matching
+//! - Default implementation for easy instantiation
+//!
+//! ## Dependencies
+//!
+//! - `async_channel` for asynchronous message passing
+//! - `tokio` for asynchronous operations
+//! - `uuid` for generating unique identifiers
+//! - `std::collections::HashMap` for mapping UUIDs to response senders
+
+use async_channel::{bounded, Receiver, Sender};
+use scc::HashMap;
+use uuid::Uuid;
+pub struct Router<Request, Response> {
+    registration_sender: Sender<(Request, Sender<Response>)>,
+    registration_receiver: Receiver<(Request, Sender<Response>)>,
+    request_sender: Sender<(Uuid, Request)>,
+    request_receiver: Receiver<(Uuid, Request)>,
+    response_receiver: Receiver<(Uuid, Response)>,
+    response_sender: Sender<(Uuid, Response)>,
+    response_map: HashMap<Uuid, Sender<Response>>,
+}
+
+impl<Request, Response> Default for Router<Request, Response> {
+    fn default() -> Self {
+        let (registration_sender, registration_receiver) = bounded(100);
+        let (request_sender, request_receiver) = bounded(100);
+        let (response_sender, response_receiver) = bounded(100);
+        Self {
+            registration_sender,
+            registration_receiver,
+            request_sender,
+            request_receiver,
+            response_sender,
+            response_receiver,
+            response_map: HashMap::new(),
+        }
+    }
+}
+
+async fn response_loop<Response>(
+    response_receiver: Receiver<(Uuid, Response)>,
+    response_map: HashMap<Uuid, Sender<Response>>,
+) {
+    while let Ok((uuid, response)) = response_receiver.recv().await {
+        if let Some((_, sender)) = response_map.remove_async(&uuid).await {
+            match sender.send(response).await {
+                Ok(_) => {
+                    println!("Success from resp loop")
+                }
+                Err(err) => {
+                    println!("Error from resp loop : {:?}", err)
+                }
+            }
+        }
+    }
+}
+
+async fn registration_loop<Request, Response>(
+    registration_receiver: Receiver<(Request, Sender<Response>)>,
+    response_map: HashMap<Uuid, Sender<Response>>,
+    request_sender: Sender<(Uuid, Request)>,
+) where
+    Request: Send + 'static,
+    Response: Send + 'static,
+{
+    while let Ok((request, response_sink)) = registration_receiver.recv().await {
+        // insert can fail if key already exists, unlikly but handled.
+        let mut uuid = Uuid::new_v4();
+        while response_map
+            .insert_async(uuid, response_sink.clone())
+            .await
+            .is_err()
+        {
+            uuid = Uuid::new_v4();
+        }
+        let request_sender = request_sender.clone();
+        tokio::spawn(async move {
+            match request_sender.send((uuid, request)).await {
+                Ok(_) => {
+                    println!("Success from reg loop")
+                }
+                Err(err) => {
+                    println!("Error from reg loop : {:?}", err)
+                }
+            };
+        });
+    }
+}
+
+impl<Request, Response> Router<Request, Response>
+where
+    Request: Send + 'static,
+    Response: Send + 'static,
+{
+    pub fn registration_sender(&self) -> Sender<(Request, Sender<Response>)> {
+        self.registration_sender.clone()
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn request_response_channels(
+        &self,
+    ) -> (Receiver<(Uuid, Request)>, Sender<(Uuid, Response)>) {
+        (self.request_receiver.clone(), self.response_sender.clone())
+    }
+
+    pub async fn run(&self) {
+        let response_loop = tokio::spawn(response_loop(
+            self.response_receiver.clone(),
+            self.response_map.clone(),
+        ));
+        let registration_loop = tokio::spawn(registration_loop(
+            self.registration_receiver.clone(),
+            self.response_map.clone(),
+            self.request_sender.clone(),
+        ));
+        let _ = tokio::join!(response_loop, registration_loop);
+    }
+}
