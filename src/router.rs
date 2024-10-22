@@ -47,10 +47,15 @@
 //! - `tokio` for asynchronous operations
 //! - `uuid` for generating unique identifiers
 //! - `std::collections::HashMap` for mapping UUIDs to response senders
+use std::{sync::Arc, time::Duration};
 
 use async_channel::{bounded, Receiver, Sender};
 use scc::HashMap;
 use uuid::Uuid;
+
+use crate::endpoint::Endpoint;
+
+#[derive(Debug, Clone)]
 pub struct Router<Request, Response> {
     registration_sender: Sender<(Request, Sender<Response>)>,
     registration_receiver: Receiver<(Request, Sender<Response>)>,
@@ -58,7 +63,7 @@ pub struct Router<Request, Response> {
     request_receiver: Receiver<(Uuid, Request)>,
     response_receiver: Receiver<(Uuid, Response)>,
     response_sender: Sender<(Uuid, Response)>,
-    response_map: HashMap<Uuid, Sender<Response>>,
+    response_map: Arc<HashMap<Uuid, Sender<Response>>>,
 }
 
 impl<Request, Response> Default for Router<Request, Response> {
@@ -73,24 +78,31 @@ impl<Request, Response> Default for Router<Request, Response> {
             request_receiver,
             response_sender,
             response_receiver,
-            response_map: HashMap::new(),
+            response_map: Arc::new(HashMap::new()),
         }
     }
 }
 
 async fn response_loop<Response>(
     response_receiver: Receiver<(Uuid, Response)>,
-    response_map: HashMap<Uuid, Sender<Response>>,
+    response_map: Arc<HashMap<Uuid, Sender<Response>>>,
 ) {
     while let Ok((uuid, response)) = response_receiver.recv().await {
-        if let Some((_, sender)) = response_map.remove_async(&uuid).await {
-            match sender.send(response).await {
+        match response_map.remove_async(&uuid).await {
+            Some((_, sender)) => match sender.send(response).await {
+                //TODO: Handle error via logging and tracing
                 Ok(_) => {
                     println!("Success from resp loop")
                 }
                 Err(err) => {
                     println!("Error from resp loop : {:?}", err)
                 }
+            },
+            None => {
+                println!(
+                    "Error from resp loop : No sender found for uuid: {:?}",
+                    uuid
+                );
             }
         }
     }
@@ -98,7 +110,7 @@ async fn response_loop<Response>(
 
 async fn registration_loop<Request, Response>(
     registration_receiver: Receiver<(Request, Sender<Response>)>,
-    response_map: HashMap<Uuid, Sender<Response>>,
+    response_map: Arc<HashMap<Uuid, Sender<Response>>>,
     request_sender: Sender<(Uuid, Request)>,
 ) where
     Request: Send + 'static,
@@ -110,12 +122,14 @@ async fn registration_loop<Request, Response>(
         while response_map
             .insert_async(uuid, response_sink.clone())
             .await
+            //.await
             .is_err()
         {
             uuid = Uuid::new_v4();
         }
         let request_sender = request_sender.clone();
         tokio::spawn(async move {
+            //TODO: Handle error via logging and tracing
             match request_sender.send((uuid, request)).await {
                 Ok(_) => {
                     println!("Success from reg loop")
@@ -133,8 +147,8 @@ where
     Request: Send + 'static,
     Response: Send + 'static,
 {
-    pub fn registration_sender(&self) -> Sender<(Request, Sender<Response>)> {
-        self.registration_sender.clone()
+    pub fn endpoint(&self, timeout: Option<Duration>) -> Endpoint<Request, Response> {
+        Endpoint::new(self.registration_sender.clone(), timeout)
     }
     #[allow(clippy::type_complexity)]
     pub fn request_response_channels(

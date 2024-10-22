@@ -73,5 +73,45 @@
 //! - `uuid` for generating unique identifiers
 //! - `thiserror` for error handling
 
-pub mod endpoint;
+mod endpoint;
 pub mod router;
+
+#[cfg(test)]
+mod tests {
+    use crate::router::Router;
+    use test_case::test_case;
+    use tokio::time::Duration;
+
+    #[test_case(5, 4, true)]
+    #[test_case(5, 6, false)]
+    #[tokio::test]
+    async fn test_endpoint_and_router_with_timeout(
+        timeout_in_secs: u64,
+        response_delay_in_secs: u64,
+        is_ok: bool,
+    ) {
+        // Define a timeout and response delay
+        let timeout = Duration::from_secs(timeout_in_secs);
+        let response_delay = Duration::from_secs(response_delay_in_secs);
+        // Create a Router
+        let router: Router<String, String> = Router::default();
+
+        // Spawn a worker to handle requests
+        let (request_receiver, response_sender) = router.request_response_channels();
+        tokio::spawn(async move {
+            while let Ok((uuid, request)) = request_receiver.recv().await {
+                tokio::time::sleep(response_delay).await;
+                let response = format!("Response to request: {}", request);
+                response_sender.send((uuid, response)).await.unwrap();
+            }
+        });
+        // Spawn the router
+        let spawned_router = router.clone();
+        tokio::spawn(async move { spawned_router.run().await });
+
+        // Make a request to the endpoint
+        let request = "Hello, world!".to_string();
+        let response = router.endpoint(Some(timeout)).handle_request(request).await;
+        assert_eq!(response.is_ok(), is_ok);
+    }
+}
