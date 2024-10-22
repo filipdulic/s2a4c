@@ -79,33 +79,29 @@ pub mod router;
 #[cfg(test)]
 mod tests {
     use crate::router::Router;
+    use async_channel::{Receiver, Sender};
     use test_case::test_case;
     use tokio::time::Duration;
+    use uuid::Uuid;
 
-    #[test_case(200, 150, true)]
-    #[test_case(200, 250, false)]
+    async fn worker_200ms(receiver: Receiver<(Uuid, String)>, sender: Sender<(Uuid, String)>) {
+        while let Ok((uuid, request)) = receiver.recv().await {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let response = format!("Response to request: {}", request);
+            sender.send((uuid, response)).await.unwrap();
+        }
+    }
+    #[test_case(250, true)]
+    #[test_case(150, false)]
     #[tokio::test]
-    async fn test_endpoint_and_router_with_timeout(
-        timeout_in_msecs: u64,
-        response_delay_in_msecs: u64,
-        is_ok: bool,
-    ) {
+    async fn test_endpoint_and_router_with_timeout(timeout_in_msecs: u64, is_ok: bool) {
         // Define a timeout and response delay
         let timeout = Duration::from_millis(timeout_in_msecs);
-        let response_delay = Duration::from_millis(response_delay_in_msecs);
         // Create a Router
         let router: Router<String, String> = Router::default();
 
         // Spawn a worker to handle requests
-        let (request_receiver, response_sender) = router.request_response_channels();
-        tokio::spawn(async move {
-            while let Ok((uuid, request)) = request_receiver.recv().await {
-                tokio::time::sleep(response_delay).await;
-                let response = format!("Response to request: {}", request);
-                response_sender.send((uuid, response)).await.unwrap();
-            }
-        });
-        // Spawn the router
+        router.tokio_spawn_workers(4, worker_200ms);
         router.tokio_spawn();
 
         // Make a request to the endpoint

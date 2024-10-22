@@ -47,7 +47,7 @@
 //! - `tokio` for asynchronous operations
 //! - `uuid` for generating unique identifiers
 //! - `std::collections::HashMap` for mapping UUIDs to response senders
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use async_channel::{bounded, Receiver, Sender};
 use scc::HashMap;
@@ -162,6 +162,24 @@ where
     pub fn tokio_spawn(&self) -> tokio::task::JoinHandle<()> {
         let temp = self.clone();
         tokio::spawn(async move { temp.run().await })
+    }
+
+    pub fn tokio_spawn_workers<F>(
+        &self,
+        num_workers: usize,
+        worker_fn: impl Fn(Receiver<(Uuid, Request)>, Sender<(Uuid, Response)>) -> F,
+    ) -> Vec<tokio::task::JoinHandle<()>>
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let mut handles = Vec::new();
+        for _ in 0..num_workers {
+            handles.push(tokio::spawn(worker_fn(
+                self.request_receiver.clone(),
+                self.response_sender.clone(),
+            )));
+        }
+        handles
     }
 
     pub async fn run(&self) {
