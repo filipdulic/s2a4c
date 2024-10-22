@@ -47,7 +47,7 @@
 //! async fn main() -> Result<(), EndpointError> {
 //!     // Create an endpoint with a timeout
 //!     let (sender, receiver) = bounded(100);
-//!     let endpoint = Endpoint::new(sender, Some(Duration::from_secs(5)));
+//!     let endpoint = Endpoint::<String, String>::new(sender, Some(Duration::from_secs(5)));
 //!
 //!     // Create a router
 //!     let router: Router<String, String> = Router::default();
@@ -73,7 +73,7 @@
 //! - `uuid` for generating unique identifiers
 //! - `thiserror` for error handling
 
-mod endpoint;
+pub mod endpoint;
 pub mod router;
 
 #[cfg(test)]
@@ -82,17 +82,17 @@ mod tests {
     use test_case::test_case;
     use tokio::time::Duration;
 
-    #[test_case(5, 4, true)]
-    #[test_case(5, 6, false)]
+    #[test_case(200, 150, true)]
+    #[test_case(200, 250, false)]
     #[tokio::test]
     async fn test_endpoint_and_router_with_timeout(
-        timeout_in_secs: u64,
-        response_delay_in_secs: u64,
+        timeout_in_msecs: u64,
+        response_delay_in_msecs: u64,
         is_ok: bool,
     ) {
         // Define a timeout and response delay
-        let timeout = Duration::from_secs(timeout_in_secs);
-        let response_delay = Duration::from_secs(response_delay_in_secs);
+        let timeout = Duration::from_millis(timeout_in_msecs);
+        let response_delay = Duration::from_millis(response_delay_in_msecs);
         // Create a Router
         let router: Router<String, String> = Router::default();
 
@@ -106,8 +106,7 @@ mod tests {
             }
         });
         // Spawn the router
-        let spawned_router = router.clone();
-        tokio::spawn(async move { spawned_router.run().await });
+        router.tokio_spawn();
 
         // Make a request to the endpoint
         let request = "Hello, world!".to_string();

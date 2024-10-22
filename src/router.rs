@@ -24,7 +24,7 @@
 //! use async_channel::{bounded, Sender, Receiver};
 //! use uuid::Uuid;
 //! use std::collections::HashMap;
-//! use router::Router;
+//! use sync2async4coms::router::Router;
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -86,7 +86,9 @@ impl<Request, Response> Default for Router<Request, Response> {
 async fn response_loop<Response>(
     response_receiver: Receiver<(Uuid, Response)>,
     response_map: Arc<HashMap<Uuid, Sender<Response>>>,
-) {
+) where
+    Response: Send + 'static + Clone,
+{
     while let Ok((uuid, response)) = response_receiver.recv().await {
         match response_map.remove_async(&uuid).await {
             Some((_, sender)) => match sender.send(response).await {
@@ -113,8 +115,8 @@ async fn registration_loop<Request, Response>(
     response_map: Arc<HashMap<Uuid, Sender<Response>>>,
     request_sender: Sender<(Uuid, Request)>,
 ) where
-    Request: Send + 'static,
-    Response: Send + 'static,
+    Request: Send + 'static + Clone,
+    Response: Send + 'static + Clone,
 {
     while let Ok((request, response_sink)) = registration_receiver.recv().await {
         // insert can fail if key already exists, unlikly but handled.
@@ -144,8 +146,8 @@ async fn registration_loop<Request, Response>(
 
 impl<Request, Response> Router<Request, Response>
 where
-    Request: Send + 'static,
-    Response: Send + 'static,
+    Request: Send + 'static + Clone,
+    Response: Send + 'static + Clone,
 {
     pub fn endpoint(&self, timeout: Option<Duration>) -> Endpoint<Request, Response> {
         Endpoint::new(self.registration_sender.clone(), timeout)
@@ -155,6 +157,11 @@ where
         &self,
     ) -> (Receiver<(Uuid, Request)>, Sender<(Uuid, Response)>) {
         (self.request_receiver.clone(), self.response_sender.clone())
+    }
+
+    pub fn tokio_spawn(&self) -> tokio::task::JoinHandle<()> {
+        let temp = self.clone();
+        tokio::spawn(async move { temp.run().await })
     }
 
     pub async fn run(&self) {

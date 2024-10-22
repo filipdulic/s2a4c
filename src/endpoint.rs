@@ -19,13 +19,13 @@
 //! receive responses asynchronously.
 //!
 //! ```rust
-//! use async_channel::{bounded, Sender};
+//! use async_channel::{bounded, Sender, Receiver};
 //! use tokio::time::Duration;
-//! use endpoint::{Endpoint, EndpointError};
+//! use sync2async4coms::endpoint::{Endpoint, EndpointError};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), EndpointError> {
-//!     let (sender, receiver) = bounded(100);
+//!     let (sender, receiver): (Sender<(String, Sender<String>)>,Receiver<(String, Sender<String>)>)= bounded(100);
 //!     let endpoint = Endpoint::new(sender, Some(Duration::from_secs(5)));
 //!
 //!     // Example usage of the endpoint
@@ -42,7 +42,7 @@
 //! be easily converted from the corresponding error types in the `async_channel` and `tokio` crates.
 //!
 //! ```rust
-//! use endpoint::EndpointError;
+//! use sync2async4coms::endpoint::EndpointError;
 //!
 //! fn handle_error(error: EndpointError) {
 //!     match error {
