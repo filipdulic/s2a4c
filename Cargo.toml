@@ -6,9 +6,11 @@ edition = "2021"
 [dependencies]
 async-channel = "2.3.1"
 scc = "2.2.2"
-thiserror = "1.0.64"
+thiserror = "1.0.65"
 tokio = { version = "1.41.0", features = ["full"] }
 uuid = { version = "1.11.0", features = ["v4"] }
 
 [dev-dependencies]
 test-case = "3.3.1"
+actix-web = "4.0.0-beta.8"
+reqwest = "0.12.8"
