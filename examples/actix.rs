@@ -6,7 +6,7 @@ use actix_web::{
     App, HttpResponse, HttpServer, Responder,
 };
 use async_channel::{Receiver, Sender};
-use sync2async4coms::router::Router;
+use s2a4c::router::Router;
 use uuid::Uuid;
 
 async fn sleep_ms(ms: u64) {

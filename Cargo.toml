@@ -1,5 +1,5 @@
 [package]
-name = "sync2async4coms"
+name = "s2a4c"
 version = "0.1.0"
 edition = "2021"
 

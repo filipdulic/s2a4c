@@ -21,7 +21,7 @@
 //! ```rust
 //! use async_channel::{bounded, Sender, Receiver};
 //! use tokio::time::Duration;
-//! use sync2async4coms::endpoint::{Endpoint, EndpointError};
+//! use s2a4c::endpoint::{Endpoint, EndpointError};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), EndpointError> {
@@ -42,7 +42,7 @@
 //! be easily converted from the corresponding error types in the `async_channel` and `tokio` crates.
 //!
 //! ```rust
-//! use sync2async4coms::endpoint::EndpointError;
+//! use s2a4c::endpoint::EndpointError;
 //!
 //! fn handle_error(error: EndpointError) {
 //!     match error {
@@ -63,14 +63,6 @@
 //!
 //! - Asynchronous request-response handling
 //! - Optional timeout for requests
-//! - Comprehensive error handling with `EndpointError`
-//!
-//! ## Dependencies
-//!
-//! - `async_channel` for asynchronous message passing
-//! - `tokio` for handling timeouts
-//! - `thiserror` for error handling
-
 use async_channel::{bounded, RecvError, SendError, Sender};
 use thiserror::Error;
 use tokio::time::{error::Elapsed, timeout};
@@ -78,16 +70,16 @@ use tokio::time::{error::Elapsed, timeout};
 #[derive(Error, Debug)]
 pub enum EndpointError {
     #[error("Error sending request")]
-    RequestSendError,
+    RequestSend,
     #[error("Error receiving response")]
-    ResponseReceiveError(#[from] RecvError),
+    ResponseReceive(#[from] RecvError),
     #[error("Request timed out")]
-    TimeoutError(#[from] Elapsed),
+    Timeout(#[from] Elapsed),
 }
 
 impl<Request, Response> From<SendError<(Request, Sender<Response>)>> for EndpointError {
     fn from(_: SendError<(Request, Sender<Response>)>) -> Self {
-        EndpointError::RequestSendError
+        EndpointError::RequestSend
     }
 }
 

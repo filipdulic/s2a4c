@@ -1,53 +1,46 @@
 //! # Router Module
 //!
-//! This module provides the `Router` struct for managing asynchronous
+//! This module provides the [Router] struct for managing asynchronous
 //! request-response communication using unique identifiers (UUIDs). It
-//! leverages the `async_channel` crate for message passing and the `tokio`
+//! leverages the [async_channel] crate for message passing and the [tokio]
 //! crate for asynchronous operations.
 //!
 //! ## Overview
 //!
-//! The `Router` struct is designed to facilitate the routing of requests and
+//! The [Router] struct is designed to facilitate the routing of requests and
 //! responses between different components of an application. It uses channels
 //! to send and receive requests and responses, ensuring that the communication
 //! is non-blocking and efficient. Each request is associated with a unique UUID
 //! to match it with the corresponding response.
 //!
-//! The `Router` struct also provides a default implementation for easy
-//! instantiation with pre-configured channel capacities.
+//! Also provided is a default implementation for easy instantiation with
+//! pre-configured channel capacities.
 //!
 //! ## Usage
 //!
-//! To use the `Router` struct, you need to create an instance of it, either
-//! using the default implementation or by manually configuring the channels.
-//! You can then use this instance to send requests and receive responses
-//! asynchronously.
+//! Create an instance of it, either using the default implementation or by
+//! manually configuring the channels. You can then use this instance to send
+//! requests and receive responses asynchronously.
 //!
 //! ```rust
 //! use async_channel::{bounded, Sender, Receiver};
 //! use uuid::Uuid;
 //! use std::collections::HashMap;
-//! use sync2async4coms::router::Router;
+//! use s2a4c::router::Router;
 //!
 //! #[tokio::main]
 //! async fn main() {
-//! let router: Router<String, String> = Router::default();
+//!     let router: Router<String, String> = Router::default();
 //!
-//! // Example usage of the router
-//! // ...
+//!     // Example usage of the router
+//!     // ...
 //! }
 //! ```
 //!
 //! ## Features
 //!
-//! - Asynchronous request-response routing - Unique identifier (UUID) based
-//! matching - Default implementation for easy instantiation
-//!
-//! ## Dependencies
-//!
-//! - `async_channel` for asynchronous message passing - `tokio` for
-//! asynchronous operations - `uuid` for generating unique identifiers -
-//! `std::collections::HashMap` for mapping UUIDs to response senders
+//! - Asynchronous request-response routing
+//! - Default implementation for easy instantiation
 use std::{future::Future, sync::Arc, time::Duration};
 
 use async_channel::{bounded, unbounded, Receiver, Sender};
@@ -61,35 +54,27 @@ use crate::endpoint::Endpoint;
 /// between different components. It uses channels for communication and
 /// maintains a mapping of request IDs to response senders.
 ///
-/// # Type Parameters - `Request`: The type of the request. - `Response`: The
-/// type of the response.
-///
-/// # Fields
-/// ## Registration Channels
-/// - `registration_sender`: used by Endpoints to send incoming requests to the
-///  router for processing.
-/// - `registration_receiver`: used by the router's registration loop to
-///  receiving new requests and their corresponding response senders.
-/// ## Request Channels
-/// - `request_sender`: used by the registration loop to sending requests along
-///  with their unique identifiers to workers.
-/// - `request_receiver`: used by workers to receive requests along with their
-///  unique identifiers.
-/// ## Response Channels
-/// - `response_sender`: used by workers to sending responses along with their
-///  unique identifiers.
-/// - `response_receiver`: used by the router's response loop to receive
-///  responses along with their unique identifiers.
-/// ## Response Map
-/// - `response_map`: Maps unique request IDs to their corresponding response
-///  senders.
+/// # Type Parameters
+/// - `Request`: any type that implements [Send] + [Clone] + 'static
+/// - `Response`: any type that implements [Send] + [Clone] + 'static
 pub struct Router<Request, Response> {
+    /// used by Endpoints to send incoming requests to the router for processing
     registration_sender: Sender<(Request, Sender<Response>)>,
+    /// used by the router's registration loop to receiving new requests and
+    /// their corresponding response senders
     registration_receiver: Receiver<(Request, Sender<Response>)>,
+    /// used by the registration loop to sending requests along with their unique
+    /// identifiers to workers
     request_sender: Sender<(Uuid, Request)>,
+    /// used by the router's response loop to receive responses along with their
+    /// unique identifiers
     request_receiver: Receiver<(Uuid, Request)>,
+    /// used by workers to sending responses along with their unique identifiers
     response_sender: Sender<(Uuid, Response)>,
+    /// used by the router's response loop to receive responses along with their
+    /// unique identifiers
     response_receiver: Receiver<(Uuid, Response)>,
+    /// maps unique request IDs to their corresponding response senders
     response_map: Arc<HashMap<Uuid, Sender<Response>>>,
 }
 
@@ -99,14 +84,14 @@ pub struct Router<Request, Response> {
 /// # Arguments
 ///
 /// - `response_receiver`: A receiver channel that receives tuples of UUIDs and
-/// responses.
+///     responses.
 /// - `response_map`: Router's `HashMap` that maps UUIDs to their corresponding
-/// response senders.
+///     response senders.
 ///
 /// # Type Parameters
 ///
-/// - `Response`: The type of the response. It must implement `Send`, `'static`,
-/// and `Clone`.
+/// - `Response`: The type of the response. It must implement [Send], [Clone],
+///     and `'static`,
 ///
 /// # Behavior
 ///
@@ -148,18 +133,18 @@ async fn response_loop<Response>(
 /// # Arguments
 ///
 /// - `registration_receiver`: A receiver channel that receives tuples of
-/// requests and their corresponding response senders.
+///     requests and their corresponding response senders.
 /// - `response_map`: router's `HashMap` that maps UUIDs to their corresponding
-/// response senders.
+///     response senders.
 /// - `request_sender`: A sender channel that sends tuples of UUIDs and
-/// requests.
+///     requests.
 ///
 /// # Type Parameters
 ///
-/// - `Request`: The type of the request. It must implement `Send`, `'static`,
-/// and `Clone`.
-/// - `Response`: The type of the response. It must implement `Send`,
-///  `'static`, and `Clone`.
+/// - `Request`: The type of the request. It must implement [Send], [Clone],
+///     and `'static`,
+/// - `Response`: The type of the response. It must implement [Send], [Clone],
+///     and `'static`,
 ///
 /// # Behavior
 ///
@@ -218,6 +203,28 @@ where
     Request: Send + 'static + Clone,
     Response: Send + 'static + Clone,
 {
+    /// Creates a new instance of the `Router` struct with bounded or unbounded
+    /// channels based on the provided sizes.
+    ///
+    /// # Arguments
+    ///
+    /// - `registration_channel_size`: An optional size for the registration
+    ///     channel. If `None`, an unbounded channel is created.
+    /// - `request_channel_size`: An optional size for the request channel. If
+    ///     `None`, an unbounded channel is created.
+    /// - `response_channel_size`: An optional size for the response channel. If
+    ///     `None`, an unbounded channel is created.
+    ///
+    /// # Returns
+    ///
+    /// Returns a new instance of the `Router` struct with the specified channel
+    /// sizes and an empty response map.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let router = Router::bounded(Some(100), Some(100), Some(100));
+    /// ```
     pub fn bounded(
         registration_channel_size: Option<usize>,
         request_channel_size: Option<usize>,
@@ -246,6 +253,34 @@ where
             response_map,
         }
     }
+    /// Creates a new [Endpoint] instance using the router's registration sender
+    /// and an optional timeout.
+    ///
+    /// # Arguments
+    ///
+    /// - `timeout`: An optional [Duration] specifying the timeout for the
+    ///   [Endpoint]. If `None`, no timeout is applied.
+    ///
+    /// # Returns
+    ///
+    /// Returns a new instance of the [Endpoint] struct configured with the
+    /// router's registration sender and the specified timeout.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tokio::time::Duration;
+    /// use s2a4c::router::Router;
+    ///
+    /// let router: Router<String, String> = Router::default();
+    /// let timeout = Some(Duration::from_secs(5));
+    /// let response_result = router.endpoint(timeout).await;
+    /// ```
+    ///
+    /// # See Also
+    ///
+    /// - [Endpoint] struct in the [endpoint](crate::endpoint) module for more details on how to
+    ///   use the [Endpoint] struct.
     pub fn endpoint(&self, timeout: Option<Duration>) -> Endpoint<Request, Response> {
         Endpoint::new(self.registration_sender.clone(), timeout)
     }
