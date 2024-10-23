@@ -41,29 +41,37 @@
 //!
 //! ## Example
 //!
-//! Here is a simple example demonstrating how to use the `Endpoint` and
-//! `Router` structs:
-//!
+//! Here is a simple example demonstrating how to use the `Router' struct:
 //! ```rust
-//! use async_channel::{bounded, Sender};
+//! use async_channel::{bounded, Sender, Receiver};
 //! use tokio::time::Duration;
-//! use s2a4c::endpoint::{Endpoint, EndpointError};
 //! use s2a4c::router::Router;
 //! use uuid::Uuid;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), EndpointError> {
-//!     // Create an endpoint with a timeout
-//!     let (sender, receiver) = bounded(100);
-//!     let endpoint = Endpoint::<String, String>::new(sender, Some(Duration::from_secs(5)));
-//!
-//!     // Create a router
+//! async fn main() {
+//!     // Define a timeout
+//!     let timeout = Duration::from_millis(100);
+//!     // define a worker function
+//!     async fn worker(receiver: Receiver<(Uuid, String)>, sender: Sender<(Uuid, String)>) {
+//!         while let Ok((uuid, request)) = receiver.recv().await {
+//!             sender.send((uuid, "World!".to_string())).await.unwrap();
+//!         }
+//!     }
+//!     // Create a Router
 //!     let router: Router<String, String> = Router::default();
+//!     // Spawn the workers
+//!     router.tokio_spawn_workers(4, worker);
+//!     // Spawn the router
+//!     router.tokio_spawn();
 //!
-//!     // Example usage of the endpoint and router
-//!     // ...
-//!
-//!     Ok(())
+//!     // Make a request to the endpoint
+//!     let request = "Hello".to_string();
+//!     let response = router
+//!         .endpoint(Some(timeout))
+//!         .handle_request(request.clone())
+//!         .await;
+//!     assert!(response.is_ok());
 //! }
 //! ```
 //!
@@ -85,17 +93,21 @@ pub mod router;
 
 #[cfg(test)]
 mod tests {
-    use crate::router::Router;
+    use crate::{endpoint::EndpointError, router::Router};
     use async_channel::{Receiver, Sender};
+    use test_case::test_case;
     use tokio::time::Duration;
     use uuid::Uuid;
 
+    #[test_case(250, true)]
+    #[test_case(150, false)]
     #[tokio::test]
-    async fn test_endpoint_and_router_with_timeout() {
+    async fn test_endpoint_and_router_with_timeout(timeout_in_msecs: u64, is_ok: bool) {
+        // Define a timeout and response delay
+        let timeout = Duration::from_millis(timeout_in_msecs);
         // Create a Router
         let router: Router<String, String> = Router::default();
 
-        // Define worker function
         async fn worker_200ms(receiver: Receiver<(Uuid, String)>, sender: Sender<(Uuid, String)>) {
             while let Ok((uuid, request)) = receiver.recv().await {
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -103,9 +115,25 @@ mod tests {
                 sender.send((uuid, response)).await.unwrap();
             }
         }
-        // Spawn a worker to handle requests
-        router.tokio_spawn_workers(4, worker_200ms);
-        // Spawn the router loops
+        // Spawn the router
         router.tokio_spawn();
+        // Spaen the workers
+        router.tokio_spawn_workers(4, worker_200ms);
+
+        // Make a request to the endpoint
+        let request = "Hello, world!".to_string();
+        let response = router
+            .endpoint(Some(timeout))
+            .handle_request(request.clone())
+            .await;
+        assert_eq!(response.is_ok(), is_ok);
+        match response {
+            Ok(response) => {
+                assert_eq!(response, format!("Response to request: {}", request));
+            }
+            Err(err) => {
+                assert!(matches!(err, EndpointError::Timeout(_)));
+            }
+        }
     }
 }

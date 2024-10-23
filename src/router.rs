@@ -15,32 +15,6 @@
 //!
 //! Also provided is a default implementation for easy instantiation with
 //! pre-configured channel capacities.
-//!
-//! ## Usage
-//!
-//! Create an instance of it, either using the default implementation or by
-//! manually configuring the channels. You can then use this instance to send
-//! requests and receive responses asynchronously.
-//!
-//! ```rust
-//! use async_channel::{bounded, Sender, Receiver};
-//! use uuid::Uuid;
-//! use std::collections::HashMap;
-//! use s2a4c::router::Router;
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     let router: Router<String, String> = Router::default();
-//!
-//!     // Example usage of the router
-//!     // ...
-//! }
-//! ```
-//!
-//! ## Features
-//!
-//! - Asynchronous request-response routing
-//! - Default implementation for easy instantiation
 use std::{future::Future, sync::Arc, time::Duration};
 
 use async_channel::{bounded, unbounded, Receiver, Sender};
@@ -219,12 +193,6 @@ where
     ///
     /// Returns a new instance of the `Router` struct with the specified channel
     /// sizes and an empty response map.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// let router = Router::bounded(Some(100), Some(100), Some(100));
-    /// ```
     pub fn bounded(
         registration_channel_size: Option<usize>,
         request_channel_size: Option<usize>,
@@ -265,32 +233,9 @@ where
     ///
     /// Returns a new instance of the [Endpoint] struct configured with the
     /// router's registration sender and the specified timeout.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use tokio::time::Duration;
-    /// use s2a4c::router::Router;
-    ///
-    /// let router: Router<String, String> = Router::default();
-    /// let timeout = Some(Duration::from_secs(5));
-    /// let response_result = router.endpoint(timeout).await;
-    /// ```
-    ///
-    /// # See Also
-    ///
-    /// - [Endpoint] struct in the [endpoint](crate::endpoint) module for more details on how to
-    ///   use the [Endpoint] struct.
     pub fn endpoint(&self, timeout: Option<Duration>) -> Endpoint<Request, Response> {
         Endpoint::new(self.registration_sender.clone(), timeout)
     }
-    #[allow(clippy::type_complexity)]
-    pub fn request_response_channels(
-        &self,
-    ) -> (Receiver<(Uuid, Request)>, Sender<(Uuid, Response)>) {
-        (self.request_receiver.clone(), self.response_sender.clone())
-    }
-
     pub fn tokio_spawn(&self) -> tokio::task::JoinHandle<()> {
         let temp = self.clone();
         tokio::spawn(async move { temp.run().await })
@@ -313,7 +258,6 @@ where
         }
         handles
     }
-
     pub async fn run(&self) {
         let response_loop = tokio::spawn(response_loop(
             self.response_receiver.clone(),

@@ -11,63 +11,11 @@
 //!
 //! The `EndpointError` enum defines various errors that can occur during the operation of an `Endpoint`,
 //! including errors related to sending requests, receiving responses, and timeouts.
-//!
-//! ## Usage
-//!
-//! To use the `Endpoint` struct, you need to create an instance of it by providing a sender channel for
-//! registration and an optional timeout interval. You can then use this instance to send requests and
-//! receive responses asynchronously.
-//!
-//! ```rust
-//! use async_channel::{bounded, Sender, Receiver};
-//! use tokio::time::Duration;
-//! use s2a4c::endpoint::{Endpoint, EndpointError};
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), EndpointError> {
-//!     let (sender, receiver): (Sender<(String, Sender<String>)>,Receiver<(String, Sender<String>)>)= bounded(100);
-//!     let endpoint = Endpoint::new(sender, Some(Duration::from_secs(5)));
-//!
-//!     // Example usage of the endpoint
-//!     // ...
-//!
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ## Error Handling
-//!
-//! The `EndpointError` enum provides comprehensive error handling for the `Endpoint` struct. It includes
-//! variants for request sending errors, response receiving errors, and timeout errors. These errors can
-//! be easily converted from the corresponding error types in the `async_channel` and `tokio` crates.
-//!
-//! ```rust
-//! use s2a4c::endpoint::EndpointError;
-//!
-//! fn handle_error(error: EndpointError) {
-//!     match error {
-//!         EndpointError::RequestSendError => {
-//!             eprintln!("Failed to send request");
-//!         }
-//!         EndpointError::ResponseReceiveError(_) => {
-//!             eprintln!("Failed to receive response");
-//!         }
-//!         EndpointError::TimeoutError(_) => {
-//!             eprintln!("Request timed out");
-//!         }
-//!     }
-//! }
-//! ```
-//!
-//! ## Features
-//!
-//! - Asynchronous request-response handling
-//! - Optional timeout for requests
 use async_channel::{bounded, RecvError, SendError, Sender};
 use thiserror::Error;
 use tokio::time::{error::Elapsed, timeout};
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum EndpointError {
     #[error("Error sending request")]
     RequestSend,
