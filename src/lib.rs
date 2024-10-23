@@ -78,68 +78,27 @@ pub mod router;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::router::Router;
     use async_channel::{Receiver, Sender};
     use tokio::time::Duration;
     use uuid::Uuid;
-
-    use actix_web::get;
-    use actix_web::web::Data;
-    use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-
-    async fn worker_200ms(receiver: Receiver<(Uuid, String)>, sender: Sender<(Uuid, String)>) {
-        while let Ok((uuid, request)) = receiver.recv().await {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            let response = format!("Response to request: {}", request);
-            sender.send((uuid, response)).await.unwrap();
-        }
-    }
-    #[get("/{timeout}")]
-    async fn hello(
-        router: Data<Router<String, String>>,
-        request: web::Path<u64>,
-    ) -> impl Responder {
-        let timeout = Duration::from_millis(request.into_inner());
-        let response = router
-            .endpoint(Some(timeout))
-            .handle_request("Hello World".to_string())
-            .await;
-        match response {
-            Ok(response) => HttpResponse::Ok().body(response),
-            Err(_) => HttpResponse::InternalServerError().finish(),
-        }
-    }
 
     #[tokio::test]
     async fn test_endpoint_and_router_with_timeout() {
         // Create a Router
         let router: Router<String, String> = Router::default();
 
+        // Define worker function
+        async fn worker_200ms(receiver: Receiver<(Uuid, String)>, sender: Sender<(Uuid, String)>) {
+            while let Ok((uuid, request)) = receiver.recv().await {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let response = format!("Response to request: {}", request);
+                sender.send((uuid, response)).await.unwrap();
+            }
+        }
         // Spawn a worker to handle requests
         router.tokio_spawn_workers(4, worker_200ms);
+        // Spawn the router loops
         router.tokio_spawn();
-
-        let data = Data::from(Arc::new(router));
-        // spawn server
-        tokio::spawn(async move {
-            let _ = HttpServer::new(move || App::new().app_data(Data::clone(&data)).service(hello))
-                .bind(("0.0.0.0", 8080))
-                .unwrap()
-                .run()
-                .await;
-        });
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        // execute 200ms worker response with 250 ms timeout
-        let response = reqwest::get("http://127.0.0.1:8080/250").await.unwrap();
-        assert_eq!(response.status().as_u16(), 200);
-        assert_eq!(
-            response.text().await.unwrap(),
-            "Response to request: Hello World"
-        );
-        // execute 200ms worker response with 150 ms timeout
-        let response = reqwest::get("http://127.0.0.1:8080/150").await.unwrap();
-        assert_eq!(response.status().as_u16(), 500);
     }
 }

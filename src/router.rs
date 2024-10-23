@@ -1,24 +1,27 @@
 //! # Router Module
 //!
-//! This module provides the `Router` struct for managing asynchronous request-response communication
-//! using unique identifiers (UUIDs). It leverages the `async_channel` crate for message passing and
-//! the `tokio` crate for asynchronous operations.
+//! This module provides the `Router` struct for managing asynchronous
+//! request-response communication using unique identifiers (UUIDs). It
+//! leverages the `async_channel` crate for message passing and the `tokio`
+//! crate for asynchronous operations.
 //!
 //! ## Overview
 //!
-//! The `Router` struct is designed to facilitate the routing of requests and responses between different
-//! components of an application. It uses channels to send and receive requests and responses, ensuring
-//! that the communication is non-blocking and efficient. Each request is associated with a unique UUID
+//! The `Router` struct is designed to facilitate the routing of requests and
+//! responses between different components of an application. It uses channels
+//! to send and receive requests and responses, ensuring that the communication
+//! is non-blocking and efficient. Each request is associated with a unique UUID
 //! to match it with the corresponding response.
 //!
-//! The `Router` struct also provides a default implementation for easy instantiation with pre-configured
-//! channel capacities.
+//! The `Router` struct also provides a default implementation for easy
+//! instantiation with pre-configured channel capacities.
 //!
 //! ## Usage
 //!
-//! To use the `Router` struct, you need to create an instance of it, either using the default implementation
-//! or by manually configuring the channels. You can then use this instance to send requests and receive
-//! responses asynchronously.
+//! To use the `Router` struct, you need to create an instance of it, either
+//! using the default implementation or by manually configuring the channels.
+//! You can then use this instance to send requests and receive responses
+//! asynchronously.
 //!
 //! ```rust
 //! use async_channel::{bounded, Sender, Receiver};
@@ -28,61 +31,90 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let router: Router<String, String> = Router::default();
+//! let router: Router<String, String> = Router::default();
 //!
-//!     // Example usage of the router
-//!     // ...
+//! // Example usage of the router
+//! // ...
 //! }
 //! ```
 //!
 //! ## Features
 //!
-//! - Asynchronous request-response routing
-//! - Unique identifier (UUID) based matching
-//! - Default implementation for easy instantiation
+//! - Asynchronous request-response routing - Unique identifier (UUID) based
+//! matching - Default implementation for easy instantiation
 //!
 //! ## Dependencies
 //!
-//! - `async_channel` for asynchronous message passing
-//! - `tokio` for asynchronous operations
-//! - `uuid` for generating unique identifiers
-//! - `std::collections::HashMap` for mapping UUIDs to response senders
+//! - `async_channel` for asynchronous message passing - `tokio` for
+//! asynchronous operations - `uuid` for generating unique identifiers -
+//! `std::collections::HashMap` for mapping UUIDs to response senders
 use std::{future::Future, sync::Arc, time::Duration};
 
-use async_channel::{bounded, Receiver, Sender};
+use async_channel::{bounded, unbounded, Receiver, Sender};
 use scc::HashMap;
 use uuid::Uuid;
 
 use crate::endpoint::Endpoint;
 
 #[derive(Debug, Clone)]
+/// The `Router` struct is responsible for routing requests and responses
+/// between different components. It uses channels for communication and
+/// maintains a mapping of request IDs to response senders.
+///
+/// # Type Parameters - `Request`: The type of the request. - `Response`: The
+/// type of the response.
+///
+/// # Fields
+/// ## Registration Channels
+/// - `registration_sender`: used by Endpoints to send incoming requests to the
+///  router for processing.
+/// - `registration_receiver`: used by the router's registration loop to
+///  receiving new requests and their corresponding response senders.
+/// ## Request Channels
+/// - `request_sender`: used by the registration loop to sending requests along
+///  with their unique identifiers to workers.
+/// - `request_receiver`: used by workers to receive requests along with their
+///  unique identifiers.
+/// ## Response Channels
+/// - `response_sender`: used by workers to sending responses along with their
+///  unique identifiers.
+/// - `response_receiver`: used by the router's response loop to receive
+///  responses along with their unique identifiers.
+/// ## Response Map
+/// - `response_map`: Maps unique request IDs to their corresponding response
+///  senders.
 pub struct Router<Request, Response> {
     registration_sender: Sender<(Request, Sender<Response>)>,
     registration_receiver: Receiver<(Request, Sender<Response>)>,
     request_sender: Sender<(Uuid, Request)>,
     request_receiver: Receiver<(Uuid, Request)>,
-    response_receiver: Receiver<(Uuid, Response)>,
     response_sender: Sender<(Uuid, Response)>,
+    response_receiver: Receiver<(Uuid, Response)>,
     response_map: Arc<HashMap<Uuid, Sender<Response>>>,
 }
 
-impl<Request, Response> Default for Router<Request, Response> {
-    fn default() -> Self {
-        let (registration_sender, registration_receiver) = bounded(100);
-        let (request_sender, request_receiver) = bounded(100);
-        let (response_sender, response_receiver) = bounded(100);
-        Self {
-            registration_sender,
-            registration_receiver,
-            request_sender,
-            request_receiver,
-            response_sender,
-            response_receiver,
-            response_map: Arc::new(HashMap::new()),
-        }
-    }
-}
-
+/// Asynchronous private function that continuously listens for incoming
+/// responses and routes them to the appropriate sender based on the UUID.
+///
+/// # Arguments
+///
+/// - `response_receiver`: A receiver channel that receives tuples of UUIDs and
+/// responses.
+/// - `response_map`: Router's `HashMap` that maps UUIDs to their corresponding
+/// response senders.
+///
+/// # Type Parameters
+///
+/// - `Response`: The type of the response. It must implement `Send`, `'static`,
+/// and `Clone`.
+///
+/// # Behavior
+///
+/// The function runs in an infinite loop, awaiting responses from the
+/// `response_receiver`. When a response is received, it attempts to find the
+/// corresponding sender in the `response_map` using the UUID. If a sender is
+/// found, it sends the response to the sender. If sending the response fails,
+/// it logs the error.
 async fn response_loop<Response>(
     response_receiver: Receiver<(Uuid, Response)>,
     response_map: Arc<HashMap<Uuid, Sender<Response>>>,
@@ -110,6 +142,33 @@ async fn response_loop<Response>(
     }
 }
 
+/// Asynchronous private function that continuously listens for incoming
+/// registration requests and maps them to unique UUIDs.
+///
+/// # Arguments
+///
+/// - `registration_receiver`: A receiver channel that receives tuples of
+/// requests and their corresponding response senders.
+/// - `response_map`: router's `HashMap` that maps UUIDs to their corresponding
+/// response senders.
+/// - `request_sender`: A sender channel that sends tuples of UUIDs and
+/// requests.
+///
+/// # Type Parameters
+///
+/// - `Request`: The type of the request. It must implement `Send`, `'static`,
+/// and `Clone`.
+/// - `Response`: The type of the response. It must implement `Send`,
+///  `'static`, and `Clone`.
+///
+/// # Behavior
+///
+/// The function runs in an infinite loop, awaiting registration requests from
+/// the `registration_receiver`. When a request is received, it generates a new
+/// UUID, maps the UUID to the response sender in the `response_map`, and sends
+/// the UUID and request to the `request_sender`. If inserting into the
+/// `response_map` fails (e.g., if the key already exists), it handles the error
+/// appropriately.
 async fn registration_loop<Request, Response>(
     registration_receiver: Receiver<(Request, Sender<Response>)>,
     response_map: Arc<HashMap<Uuid, Sender<Response>>>,
@@ -144,11 +203,49 @@ async fn registration_loop<Request, Response>(
     }
 }
 
+impl<Request, Response> Default for Router<Request, Response>
+where
+    Request: Send + 'static + Clone,
+    Response: Send + 'static + Clone,
+{
+    fn default() -> Self {
+        Self::bounded(Some(100), Some(100), Some(100))
+    }
+}
+
 impl<Request, Response> Router<Request, Response>
 where
     Request: Send + 'static + Clone,
     Response: Send + 'static + Clone,
 {
+    pub fn bounded(
+        registration_channel_size: Option<usize>,
+        request_channel_size: Option<usize>,
+        response_channel_size: Option<usize>,
+    ) -> Self {
+        let (registration_sender, registration_receiver) = match registration_channel_size {
+            Some(b) => bounded(b),
+            None => unbounded(),
+        };
+        let (request_sender, request_receiver) = match request_channel_size {
+            Some(b) => bounded(b),
+            None => unbounded(),
+        };
+        let (response_sender, response_receiver) = match response_channel_size {
+            Some(b) => bounded(b),
+            None => unbounded(),
+        };
+        let response_map = Arc::new(HashMap::new());
+        Self {
+            registration_sender,
+            registration_receiver,
+            request_sender,
+            request_receiver,
+            response_sender,
+            response_receiver,
+            response_map,
+        }
+    }
     pub fn endpoint(&self, timeout: Option<Duration>) -> Endpoint<Request, Response> {
         Endpoint::new(self.registration_sender.clone(), timeout)
     }
